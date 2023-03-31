@@ -1,5 +1,5 @@
 import fetchImages from './search-images/fetch-images';
-import cardTemplate from './templates/card-template.hbs;
+//import cardTemplate from './templates/card-template;
 import { Notify } from 'notiflix/build/notiflix-notify-aio';
 import SimpleLightbox from 'simplelightbox';
 import 'simplelightbox/dist/simple-lightbox.min.css';
