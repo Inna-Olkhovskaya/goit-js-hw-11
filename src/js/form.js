@@ -1,24 +1,31 @@
-import fetchImages from './search-images/fetch-images';
-import { Notify } from 'notiflix/build/notiflix-notify-aio';
+import Notiflix from 'notiflix';
 import SimpleLightbox from 'simplelightbox';
 import 'simplelightbox/dist/simple-lightbox.min.css';
-import throttle from 'lodash.throttle';
+import NewsApiServices from './search-images/fetch-images';
 
-const { searchForm, gallery, loadMoreBtn, endCollectionText } = {
-  searchForm: document.querySelector('.search-form'),
-  gallery: document.querySelector('.gallery'),
-  loadMoreBtn: document.querySelector('.load-more'),
-  endCollectionText: document.querySelector('.end-collection-text'),
-};
+const form = document.querySelector('.search-form');
+const gallery = document.querySelector('.gallery');
+const loadMoreBtn = document.querySelector('.load-more');
+const elements = document.querySelectorAll('.photo-card');
 
-const markup = createImagesMarkup(hits);
-gallery.insertAdjacentHTML('beforeend', markup);
+const lightbox = new SimpleLightbox('.gallery a', {});
+const newsApiServices = new NewsApiServices();
+let currentQuantity = newsApiServices.quantity;
 
-let lightbox = new SimpleLightbox('.photo-card a', {
-  captions: true,
-  captionsData: 'alt',
-  captionDelay: 250,
-});
+form.addEventListener('submit', onSearch);
+loadMoreBtn.addEventListener('click', onLoadMoreBtn);
+
+function onSearch(e) {
+  e.preventDefault();
+  getQuery(e);
+
+  try {
+    fetchData();
+  } catch (error) {
+    console.log(error);
+    Notiflix.Notify.failure('Oops, something went wrong...');
+  }
+}
 
 function createImagesMarkup(images) {
   return images
@@ -34,9 +41,11 @@ function createImagesMarkup(images) {
       }) => {
         return `
         <div class="photo-card">
-          <a href="${webformatURL}">
+          <div class="thumb">
+            <a class="image" href="${webformatURL}">
             <img src="${largeImageURL}" alt="${tags}" loading="lazy" />
-          </a>
+            </a>
+          </div>
           <div class="info">
             <p class="info-item">
               <b>Likes</b> ${likes}
@@ -58,72 +67,73 @@ function createImagesMarkup(images) {
     .join('');
 }
 
-let currentPage = 1;
-let currentHits = 0;
-let searchQuery = '';
+function addImagesToGallery(markup) {
+  gallery.insertAdjacentHTML('beforeend', markup);
+  lightbox.refresh();
+}
 
-searchForm.addEventListener('submit', onSubmitSearchForm);
+function clearGallery() {
+  gallery.innerHTML = '';
+}
 
-async function onSubmitSearchForm(e) {
-  e.preventDefault();
-  searchQuery = e.currentTarget.searchQuery.value;
-  currentPage = 1;
+function onScroll() {
+  const { height: cardHeight } =
+    gallery.firstElementChild.getBoundingClientRect();
+  window.scrollBy({
+    top: cardHeight * 2,
+    behavior: 'smooth',
+  });
+}
 
-  if (searchQuery === '') {
-    return;
-  }
-
-  const response = await fetchImages(searchQuery, currentPage);
-  currentHits = response.hits.length;
-
-  if (response.totalHits > 40) {
-    loadMoreBtn.classList.remove('is-hidden');
-  } else {
-    loadMoreBtn.classList.add('is-hidden');
-  }
-
+async function onLoadMoreBtn() {
   try {
-    if (response.totalHits > 0) {
-      Notify.success(`Hooray! We found ${response.totalHits} images.`);
-      gallery.innerHTML = '';
-      renderCardImage(response.hits);
-      lightbox.refresh();
-      endCollectionText.classList.add('is-hidden');
-
-      const { height: cardHeight } = document
-        .querySelector('.gallery')
-        .firstElementChild.getBoundingClientRect();
-
-      window.scrollBy({
-        top: cardHeight * -100,
-        behavior: 'smooth',
-      });
+    const response = await newsApiServices.fetchImages();
+    const elements = document.querySelectorAll('.photo-card');
+    if (elements.length === response.data.totalHits) {
+      endCollection();
     }
 
-    if (response.totalHits === 0) {
-      gallery.innerHTML = '';
-      Notify.failure(
-        'Sorry, there are no images matching your search query. Please try again.'
-      );
-      loadMoreBtn.classList.add('is-hidden');
-      endCollectionText.classList.add('is-hidden');
-    }
+    const nextPageMarkup = createImagesMarkup(response.data.hits);
+    addImagesToGallery(nextPageMarkup);
+
+    let timeoutScroll = setTimeout(onScroll, 1000);
   } catch (error) {
     console.log(error);
+    Notiflix.Notify.failure('Oops, something went wrong...');
   }
 }
 
-loadMoreBtn.addEventListener('click', onClickLoadMoreBtn);
+function endCollection() {
+  loadMoreBtn.classList.toggle('is-hidden');
+  Notiflix.Notify.info(
+    "Were sorry, but you've reached the end of search results"
+  );
+}
 
-async function onClickLoadMoreBtn() {
-  currentPage += 1;
-  const response = await fetchImages(searchQuery, currentPage);
-  renderCardImage(response.hits);
-  lightbox.refresh();
-  currentHits += response.hits.length;
+function getQuery(e) {
+  newsApiServices.query = e.currentTarget.searchQuery.value.trim();
+  newsApiServices.resetPage();
+  clearGallery();
 
-  if (currentHits === response.totalHits) {
-    loadMoreBtn.classList.add('is-hidden');
-    endCollectionText.classList.remove('is-hidden');
+  if (newsApiServices.query === '') {
+    return Notiflix.Notify.failure('Input query!');
   }
+}
+
+async function fetchData() {
+  const response = await newsApiServices.fetchImages();
+  const hits = response.data.hits;
+  const totalHits = response.data.totalHits;
+  if (hits.length === 0) {
+    Notiflix.Notify.failure(
+      'Sorry, there are no images matching your search query. Please try again.'
+    );
+    clearGallery();
+    return;
+  }
+
+  Notiflix.Notify.success(`Hooray! We found ${totalHits} images.`);
+  const imagesMarkup = createImagesMarkup(hits);
+  addImagesToGallery(imagesMarkup);
+  loadMoreBtn.classList.toggle('is-hidden');
 }
